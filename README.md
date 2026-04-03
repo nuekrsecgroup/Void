@@ -210,7 +210,7 @@ API keys and preferences saved from the **Settings** screen are written to `conf
 
 ## 📸 Screenshots
 ![Void Tool](https://i.ibb.co/wF1ZhXcs/Ekran-g-r-nt-s-2026-04-03-225956.png)
-> *(Add screenshots here later)*
+>
 
 ---
 
