@@ -60,7 +60,6 @@ import dns.update
 import dns.tsigkeyring
 import ipaddress
 import netifaces
-from scapy.all import *
 import paramiko
 from paramiko import SSHClient, AutoAddPolicy
 import ftplib
@@ -387,6 +386,7 @@ class Config:
     GUI_FONT = 'Segoe UI'
     GUI_FONT_SIZE = 10
     COLORS = {'primary': '#0a0a0a', 'primary_light': '#404040', 'primary_dark': '#000000', 'secondary': '#525252', 'success': '#171717', 'warning': '#737373', 'danger': '#000000', 'info': '#404040', 'background': '#ffffff', 'surface': '#fafafa', 'surface_dark': '#f4f4f5', 'text_primary': '#0a0a0a', 'text_secondary': '#525252', 'text_hint': '#a1a1aa', 'divider': '#e4e4e7', 'border': '#d4d4d8', 'shadow': 'rgba(0,0,0,0.08)'}
+    _CONFIG_PATH_KEYS = frozenset({'BASE_DIR', 'CONFIG_FILE', 'DATABASE_FILE', 'SESSION_FILE', 'LOG_FILE', 'REPORTS_DIR', 'PLUGINS_DIR', 'MODULES_DIR', 'PAYLOADS_DIR', 'WORDLISTS_DIR', 'SCREENSHOTS_DIR', 'CACHE_DIR', 'KNOWLEDGE_BASE_DIR'})
 
     @classmethod
     def initialize(cls):
@@ -401,19 +401,61 @@ class Config:
         cls.KNOWLEDGE_BASE_DIR.mkdir(exist_ok=True)
 
     @classmethod
+    def _backup_bad_config(cls):
+        p = cls.CONFIG_FILE
+        if not p.exists():
+            return
+        bad = p.with_suffix('.yaml.bad')
+        n = 0
+        while bad.exists():
+            n += 1
+            bad = p.with_suffix(f'.yaml.bad.{n}')
+        try:
+            p.rename(bad)
+        except OSError:
+            try:
+                shutil.copy2(p, bad)
+                p.unlink()
+            except OSError:
+                pass
+
+    @classmethod
     def load(cls):
-        if cls.CONFIG_FILE.exists():
-            with open(cls.CONFIG_FILE, 'r') as f:
+        if not cls.CONFIG_FILE.exists():
+            return
+        try:
+            with open(cls.CONFIG_FILE, 'r', encoding='utf-8') as f:
                 config = yaml.safe_load(f)
-                for (key, value) in config.items():
-                    if hasattr(cls, key):
-                        setattr(cls, key, value)
+        except (yaml.constructor.ConstructorError, yaml.YAMLError, OSError):
+            cls._backup_bad_config()
+            return
+        if not isinstance(config, dict):
+            return
+        for (key, value) in config.items():
+            if key in cls._CONFIG_PATH_KEYS:
+                continue
+            if not hasattr(cls, key):
+                continue
+            cur = getattr(cls, key, None)
+            if isinstance(cur, Path):
+                continue
+            setattr(cls, key, value)
 
     @classmethod
     def save(cls):
-        config = {key: getattr(cls, key) for key in dir(cls) if not key.startswith('_') and (not callable(getattr(cls, key)))}
-        with open(cls.CONFIG_FILE, 'w') as f:
-            yaml.dump(config, f)
+        skip = frozenset({'initialize', 'load', 'save', '_backup_bad_config'})
+        config = {}
+        for key in dir(cls):
+            if key.startswith('_') or key in skip:
+                continue
+            val = getattr(cls, key)
+            if callable(val):
+                continue
+            if key in cls._CONFIG_PATH_KEYS or isinstance(val, Path):
+                continue
+            config[key] = val
+        with open(cls.CONFIG_FILE, 'w', encoding='utf-8') as f:
+            yaml.safe_dump(config, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
 
 class SmartCrawler:
 
